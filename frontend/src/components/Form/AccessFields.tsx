@@ -1,4 +1,4 @@
-import { IconArrowDown, IconArrowUp, IconLock, IconLockOpen2, IconWorld, IconX } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowUp, IconList, IconLock, IconLockOpen2, IconWorld, IconX } from "@tabler/icons-react";
 import { useFormikContext } from "formik";
 import { type ReactNode, useState } from "react";
 import Select, { components, type OptionProps } from "react-select";
@@ -33,6 +33,14 @@ interface AccessTypeOption extends BaseOption {
 	readonly icon?: ReactNode;
 }
 
+interface AccessRow {
+	useIP: boolean;
+	accessListId: number;
+	allow: boolean;
+	address: string;
+}
+
+
 const OptionContent = (label: string, subLabel: string, icon?: ReactNode) => (
 	<div className="flex-fill">
 		<div className="font-weight-medium">
@@ -56,7 +64,11 @@ const TypeOption = (props: OptionProps<AccessTypeOption>) => {
 };
 
 export function AccessFields({ initialAccessListType, location, initialAccessListIds, name, type, onChange }: Props) {
-	const [values, setValues] = useState(initialAccessListIds || []);
+	const [values, setValues] = useState<AccessRow[]>((initialAccessListIds || []).map((accessListId) => ({
+			mode: "acl",
+			accessListId,
+		})),
+	);
 	const [aclValue, setAclValue] = useState(initialAccessListType);
 	const { locale } = useLocaleState();
 	const { setFieldValue } = useFormikContext();
@@ -104,7 +116,7 @@ export function AccessFields({ initialAccessListType, location, initialAccessLis
 	};
 
 	const defaultOptions: AccessOption[] = data?.map(createDefaultItem) || [];
-	const valuesSet = new Set(values?.map((item: number) => item || 0) || []);
+	const valuesSet = new Set(values?.filter((item: AccessRow) => item.mode === "acl").map((item: AccessRow) => item.accessListId || 0) || []);
 	const options = defaultOptions.filter((option: AccessOption) => !valuesSet.has(option.value));
 
 	const typeOptions = (): AccessTypeOption[] => {
@@ -133,6 +145,22 @@ export function AccessFields({ initialAccessListType, location, initialAccessLis
 		const newValues = values.map((id: number, i: number) => (i === idx ? acl.id || 0 : id));
 		applyUpdatedValues(newValues);
 	};
+
+	const setUseIP = (idx: number, useIP: boolean) => {
+		const current = values[idx];
+
+		const nextValue: AccessRow = useIP ? {
+			mode: "ip",
+			allow: true,
+			address: "",
+		} : {
+			mode: "acl",
+			accessListId: findFirstAvailableOption()?.value || 0,
+		};
+
+		const newValues = values.with(idx, nextValue);
+		applyUpdatedValues(newValues);
+	}
 
 	const handleAdd = () => {
 		const newAccessOption = findFirstAvailableOption();
@@ -164,8 +192,8 @@ export function AccessFields({ initialAccessListType, location, initialAccessLis
 		}
 	};
 
-	const handleRemove = (aclId: number) => {
-		const newValues = values.filter((id: number) => id !== aclId);
+	const handleRemove = (idx: number) => {
+		const newValues = values.toSpliced(idx, 1);
 		applyUpdatedValues(newValues);
 	};
 
@@ -204,24 +232,70 @@ export function AccessFields({ initialAccessListType, location, initialAccessLis
 				<>
 					{values.map((item: number, idx: number) => (
 						<div key={item ?? idx} className="input-group mb-1 shadow-none">
-							<Select<AccessOption, false>
-								className="react-select-container col-md-8 mb-1"
-								classNamePrefix="react-select"
-								value={defaultOptions.find((o) => o.value === item) ?? null}
-								options={options}
-								components={{ Option }}
-								styles={{
-									option: (base) => ({
-										...base,
-										height: "100%",
-									}),
-								}}
+							{item.mode === "acl" ? (
+								<Select<AccessOption, false>
+									className="react-select-container col-md-8 mb-1"
+									classNamePrefix="react-select"
+									value={defaultOptions.find((o) => o.value === item) ?? null}
+									options={options}
+									components={{ Option }}
+									styles={{
+										option: (base) => ({
+											...base,
+											height: "100%",
+										}),
+									}}
+									onChange={(e) => {
+										if (!e || Array.isArray(e)) return;
+										onAccessListChange(e.meta, idx);
+									}}
+									isDisabled={aclValue !== "custom"}
+								/>
+							) : (
+								<div className="input-group col-md-8 mb-1">
+									<select
+										className="form-select"
+										value={item.allow}
+										onChange={(event) =>
+											handleIPChange(idx, item.allow, event.target.value)
+										}
+									>
+										<option value="allow">
+											<T id="action.allow" />
+										</option>
+										<option value="deny">
+											<T id="action.deny" />
+										</option>
+									</select>
+									<input
+										type="text"
+										className="form-control"
+										value={item.address}
+										placeholder={intl.formatMessage({
+											id: "access-list.rule-source.placeholder",
+										})}
+										onChange={(event) =>
+											handleIPChange(idx, "address", event.target.value)
+										}
+									/>
+								</div>
+							)}
+							<input
+								type="checkbox"
+								aria-label="Use Access List"
+								className="btn-check"
+								id={`access-source-${idx}`}
+								checked={item.mode === "ip"}
 								onChange={(e) => {
-									if (!e || Array.isArray(e)) return;
-									onAccessListChange(e.meta, idx);
+									setUseIP(idx, e.target.checked);
 								}}
-								isDisabled={aclValue !== "custom"}
-							/>
+							/>	
+							<label
+								className="btn mb-1 ms-1"
+								htmlFor={`access-source-${idx}`}
+							>
+								<IconList size={16} />
+							</label>
 							{idx > 0 ? (
 								<button
 									type="button"
